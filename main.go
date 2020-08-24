@@ -73,13 +73,13 @@ func main() {
 			target := []interface{}{}
 			for i, row := range res.Values {
 				if len(row) != colCount {
-					if rowNum != -1 {
+					if rowNum != -1 { // In case there are current events to post first as they take higher priority
 						category := fmt.Sprintf("%v", row[2])
 						if category == "Current Events" {
-							continue
-						} else {
 							target = row
 							rowNum = i + 1
+						} else {
+							continue
 						}
 					}
 					target = row
