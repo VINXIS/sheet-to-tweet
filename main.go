@@ -22,7 +22,7 @@ import (
 
 var (
 	linkRegex  = regexp.MustCompile(`(?i)https?:\/\/\S+`)
-	rangeRegex = regexp.MustCompile(`(.+)![A-Z][[:digit:]]+:[A-Z][[:digit:]]+`)
+	rangeRegex = regexp.MustCompile(`(.+)![A-Z][[:digit:]]*:[A-Z][[:digit:]]*`)
 )
 
 func main() {
@@ -37,13 +37,14 @@ func main() {
 			timer = time.Duration(num) * time.Minute
 		}
 	}
-	log.Println(timer)
+	log.Printf("Time interval obtained: %v\n", timer)
 
 	// Get sheets/twitter credentials + sheet ID/range
 	conf := config.NewConfig()
 	if !rangeRegex.MatchString(conf.Sheet.Range) {
 		log.Fatalln("Range given in config is not a valid range!")
 	}
+	log.Println("Obtained config info...")
 
 	// Enable google client
 	client := conf.Google.Client(context.TODO())
@@ -51,11 +52,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("Unable to create Sheet Service: %v", err)
 	}
+	log.Println("Started google client...")
 
 	// Enable twitter client
 	twitter := anaconda.NewTwitterApiWithCredentials(conf.Twitter.Token, conf.Twitter.Secret, conf.Twitter.ConsumerKey, conf.Twitter.ConsumerSecret)
+	log.Println("Started twitter client...")
 
 	ticker := time.NewTicker(timer)
+	log.Printf("Beginning timer! First tweet will be posted %v from now.\n", timer)
 	for {
 		select {
 		case <-ticker.C:
