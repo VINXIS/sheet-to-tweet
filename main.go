@@ -1,0 +1,114 @@
+package main
+
+import (
+	"context"
+	"encoding/base64"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"./config"
+	"github.com/ChimeraCoder/anaconda"
+
+	"google.golang.org/api/sheets/v4"
+)
+
+var (
+	linkRegex  = regexp.MustCompile(`(?i)https?:\/\/\S+`)
+	rangeRegex = regexp.MustCompile(`(.+)![A-Z][[:digit:]]+:[A-Z][[:digit:]]+`)
+)
+
+func main() {
+	// Get args
+	timer := 30 * time.Minute
+	for i, arg := range os.Args {
+		if arg == "-t" {
+			num, err := strconv.Atoi(os.Args[i+1])
+			if err != nil {
+				log.Fatalln("Please provide an integer with the -t flag.")
+			}
+			timer = time.Duration(num) * time.Minute
+		}
+	}
+	log.Println(timer)
+
+	// Get sheets/twitter credentials + sheet ID/range
+	conf := config.NewConfig()
+	if !rangeRegex.MatchString(conf.Sheet.Range) {
+		log.Fatalln("Range given in config is not a valid range!")
+	}
+
+	// Enable google client
+	client := conf.Google.Client(context.TODO())
+	sheetsService, err := sheets.New(client)
+	if err != nil {
+		log.Fatalf("Unable to create Sheet Service: %v", err)
+	}
+
+	// Enable twitter client
+	twitter := anaconda.NewTwitterApiWithCredentials(conf.Twitter.Token, conf.Twitter.Secret, conf.Twitter.ConsumerKey, conf.Twitter.ConsumerSecret)
+
+	ticker := time.NewTicker(timer)
+	for {
+		select {
+		case <-ticker.C:
+			// Obtain sheet values
+			res, err := sheetsService.Spreadsheets.Values.Get(conf.Sheet.ID, conf.Sheet.Range).Do()
+			if err != nil {
+				log.Fatalf("Unable to retrieve data from sheet: %v", err)
+			}
+			colCount := len(res.Values[0])
+			rowNum := -1
+			target := []interface{}{}
+			for i, row := range res.Values {
+				if len(row) != colCount {
+					target = row
+					rowNum = i
+					break
+				}
+			}
+			if rowNum == -1 {
+				log.Fatalln("No more new rows to send.")
+			}
+			text := fmt.Sprintf("%v", target[0])
+			v := url.Values{}
+			// Check for a link for an image or video
+			if linkRegex.MatchString(text) {
+				link := linkRegex.FindStringSubmatch(text)[0]
+				res, err := http.Get(link)
+				if err == nil {
+					defer res.Body.Close()
+					b, err := ioutil.ReadAll(res.Body)
+					if err == nil {
+						media, err := twitter.UploadMedia(base64.StdEncoding.EncodeToString(b))
+						if err == nil {
+							v.Set("media_ids", strconv.FormatInt(media.MediaID, 10))
+							text = strings.Replace(text, link, "", -1)
+						}
+					}
+				}
+			}
+			t, err := twitter.PostTweet(text, v)
+			if err != nil {
+				log.Fatalf("Unable to post tweet: %v", err)
+			} else {
+				log.Printf("Posted tweet ID: %v\n", t.Id)
+				cell := "B" + strconv.Itoa(rowNum)
+				if strings.Contains(conf.Sheet.Range, "!") {
+					cell = rangeRegex.FindStringSubmatch(conf.Sheet.Range)[1] + cell
+				}
+				_, err = sheetsService.Spreadsheets.Values.Update(conf.Sheet.ID, cell, &sheets.ValueRange{Values: [][]interface{}{{"Y"}}}).ValueInputOption("RAW").Do()
+				if err != nil {
+					log.Fatalf("Failed to update sheet: %v", err)
+				}
+			}
+		}
+	}
+}
