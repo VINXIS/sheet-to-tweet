@@ -74,7 +74,7 @@ func main() {
 			for i, row := range res.Values {
 				if len(row) != colCount {
 					target = row
-					rowNum = i
+					rowNum = i + 1
 					break
 				}
 			}
