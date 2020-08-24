@@ -81,7 +81,7 @@ func main() {
 			if rowNum == -1 {
 				log.Fatalln("No more new rows to send.")
 			}
-			text := fmt.Sprintf("%v", target[0])
+			text := fmt.Sprintf("%v", target[1])
 			v := url.Values{}
 			// Check for a link for an image or video
 			if linkRegex.MatchString(text) {
@@ -104,10 +104,7 @@ func main() {
 				log.Fatalf("Unable to post tweet: %v", err)
 			} else {
 				log.Printf("Posted tweet ID: %v\n", t.Id)
-				cell := "B" + strconv.Itoa(rowNum)
-				if strings.Contains(conf.Sheet.Range, "!") {
-					cell = rangeRegex.FindStringSubmatch(conf.Sheet.Range)[1] + cell
-				}
+				cell := "Approved!D" + strconv.Itoa(rowNum)
 				_, err = sheetsService.Spreadsheets.Values.Update(conf.Sheet.ID, cell, &sheets.ValueRange{Values: [][]interface{}{{"Y"}}}).ValueInputOption("RAW").Do()
 				if err != nil {
 					log.Fatalf("Failed to update sheet: %v", err)
