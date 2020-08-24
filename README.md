@@ -1,5 +1,5 @@
 # sheet-to-tweet
-A bot that posts from a spreadsheet to twitter
+A bot that posts from a google spreadsheet to twitter
 
 1. Obtain the credentials json from Google Cloud console by first enabling sheets API, and then creating a service account. Place it in the config folder and rename it to credentials.json.
 
