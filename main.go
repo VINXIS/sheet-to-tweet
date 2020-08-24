@@ -73,9 +73,17 @@ func main() {
 			target := []interface{}{}
 			for i, row := range res.Values {
 				if len(row) != colCount {
+					if rowNum != -1 {
+						category := fmt.Sprintf("%v", row[2])
+						if category == "Current Events" {
+							continue
+						} else {
+							target = row
+							rowNum = i + 1
+						}
+					}
 					target = row
 					rowNum = i + 1
-					break
 				}
 			}
 			if rowNum == -1 {
