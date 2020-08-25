@@ -78,6 +78,7 @@ func main() {
 						if category == "Current Events" {
 							target = row
 							rowNum = i + 1
+							break
 						} else {
 							continue
 						}
