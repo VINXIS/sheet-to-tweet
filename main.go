@@ -68,8 +68,16 @@ func main() {
 	twitter := anaconda.NewTwitterApiWithCredentials(conf.Twitter.Token, conf.Twitter.Secret, conf.Twitter.ConsumerKey, conf.Twitter.ConsumerSecret)
 	log.Println("Started twitter client...")
 
+	currTime := time.Now()
+	nextHour := time.Date(currTime.Year(), currTime.Month(), currTime.Day(), currTime.Hour()+1, 0, 0, 0, time.UTC)
+
+	delay := time.NewTimer(nextHour.Sub(time.Now()))
+	log.Printf("Waiting for the next hour to pass... First tweet will be posted on %v", nextHour)
+	<-delay.C
+	go runCron(sheetsService, twitter)
+
 	ticker := time.NewTicker(timer)
-	log.Printf("Beginning timer! First tweet will be posted %v from now.\n", timer)
+	log.Printf("Beginning timer! Next tweet will be posted %v from now.\n", timer)
 	for {
 		select {
 		case <-ticker.C:
