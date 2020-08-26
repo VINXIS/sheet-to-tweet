@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -23,7 +24,17 @@ import (
 var (
 	linkRegex  = regexp.MustCompile(`(?i)https?:\/\/\S+`)
 	rangeRegex = regexp.MustCompile(`(.+)![A-Z][[:digit:]]*:[A-Z][[:digit:]]*`)
+	conf       = config.NewConfig()
 )
+
+type twitterError struct {
+	Errors []errorMessage `json:"errors"`
+}
+
+type errorMessage struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
 
 func main() {
 	// Get args
@@ -40,7 +51,6 @@ func main() {
 	log.Printf("Time interval obtained: %v\n", timer)
 
 	// Get sheets/twitter credentials + sheet ID/range
-	conf := config.NewConfig()
 	if !rangeRegex.MatchString(conf.Sheet.Range) {
 		log.Fatalln("Range given in config is not a valid range!")
 	}
@@ -63,62 +73,84 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			// Obtain sheet values
-			res, err := sheetsService.Spreadsheets.Values.Get(conf.Sheet.ID, conf.Sheet.Range).Do()
-			if err != nil {
-				log.Fatalf("Unable to retrieve data from sheet: %v", err)
-			}
-			colCount := len(res.Values[0])
-			rowNum := -1
-			target := []interface{}{}
-			for i, row := range res.Values {
-				if len(row) != colCount {
-					if rowNum != -1 { // In case there are current events to post first as they take higher priority
-						category := fmt.Sprintf("%v", row[2])
-						if category == "Current Events" {
-							target = row
-							rowNum = i + 1
-							break
-						} else {
-							continue
-						}
-					}
-					target = row
-					rowNum = i + 1
+			go runCron(sheetsService, twitter)
+		}
+	}
+}
+
+func runCron(sheetsService *sheets.Service, twitter *anaconda.TwitterApi) {
+	// Obtain sheet values
+	res, err := sheetsService.Spreadsheets.Values.Get(conf.Sheet.ID, conf.Sheet.Range).Do()
+	if err != nil {
+		log.Fatalf("Unable to retrieve data from sheet: %v", err)
+	}
+	colCount := len(res.Values[0])
+	rowNum := -1
+	target := []interface{}{}
+	for i, row := range res.Values {
+		if len(row) != colCount {
+			if rowNum != -1 { // In case there are current events to post first as they take higher priority
+				category := fmt.Sprintf("%v", row[2])
+				if category != "Current Events" {
+					continue
 				}
+
+				target = row
+				rowNum = i + 1
+				break
 			}
-			if rowNum == -1 {
-				log.Fatalln("No more new rows to send.")
-			}
-			text := fmt.Sprintf("%v", target[1])
-			v := url.Values{}
-			// Check for a link for an image or video
-			if linkRegex.MatchString(text) {
-				link := linkRegex.FindStringSubmatch(text)[0]
-				res, err := http.Get(link)
+			target = row
+			rowNum = i + 1
+		}
+	}
+	if rowNum == -1 {
+		log.Fatalln("No more new rows to send.")
+	}
+	text := fmt.Sprintf("%v", target[1])
+	v := url.Values{}
+
+	// Check for a link for an image or video
+	if linkRegex.MatchString(text) {
+		link := linkRegex.FindStringSubmatch(text)[0]
+		res, err := http.Get(link)
+		if err == nil {
+			defer res.Body.Close()
+			b, err := ioutil.ReadAll(res.Body)
+			if err == nil {
+				media, err := twitter.UploadMedia(base64.StdEncoding.EncodeToString(b))
 				if err == nil {
-					defer res.Body.Close()
-					b, err := ioutil.ReadAll(res.Body)
-					if err == nil {
-						media, err := twitter.UploadMedia(base64.StdEncoding.EncodeToString(b))
-						if err == nil {
-							v.Set("media_ids", strconv.FormatInt(media.MediaID, 10))
-							text = strings.Replace(text, link, "", -1)
-						}
-					}
-				}
-			}
-			t, err := twitter.PostTweet(text, v)
-			if err != nil {
-				log.Fatalf("Unable to post tweet: %v", err)
-			} else {
-				log.Printf("Posted tweet ID: %v\n", t.Id)
-				cell := "Approved!D" + strconv.Itoa(rowNum)
-				_, err = sheetsService.Spreadsheets.Values.Update(conf.Sheet.ID, cell, &sheets.ValueRange{Values: [][]interface{}{{"Y"}}}).ValueInputOption("RAW").Do()
-				if err != nil {
-					log.Fatalf("Failed to update sheet: %v", err)
+					v.Set("media_ids", strconv.FormatInt(media.MediaID, 10))
+					text = strings.Replace(text, link, "", -1)
 				}
 			}
 		}
+	}
+
+	t, err := twitter.PostTweet(text, v)
+	if err != nil {
+		var twitError twitterError
+		ogErr := err
+		err = json.Unmarshal([]byte(err.Error()), &twitError)
+		if err != nil {
+			log.Fatalf("Unable to parse error JSON: %v\n Original error: %v", err, ogErr)
+		}
+		if twitError.Errors[0].Code == 187 { // Duplicate
+			log.Println("Tweet was duplicate, finding next tweet...")
+			updateSheet(sheetsService, rowNum)
+			go runCron(sheetsService, twitter)
+		} else {
+			log.Fatalf("Error in posting tweet: %v", err)
+		}
+	} else {
+		log.Printf("Posted tweet ID: %v\n", t.Id)
+		updateSheet(sheetsService, rowNum)
+	}
+}
+
+func updateSheet(sheetsService *sheets.Service, rowNum int) {
+	cell := "Approved!D" + strconv.Itoa(rowNum)
+	_, err := sheetsService.Spreadsheets.Values.Update(conf.Sheet.ID, cell, &sheets.ValueRange{Values: [][]interface{}{{"Y"}}}).ValueInputOption("RAW").Do()
+	if err != nil {
+		log.Fatalf("Failed to update sheet: %v", err)
 	}
 }
