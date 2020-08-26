@@ -68,6 +68,7 @@ func main() {
 	twitter := anaconda.NewTwitterApiWithCredentials(conf.Twitter.Token, conf.Twitter.Secret, conf.Twitter.ConsumerKey, conf.Twitter.ConsumerSecret)
 	log.Println("Started twitter client...")
 
+	// Run cron
 	ticker := time.NewTicker(timer)
 	log.Printf("Beginning timer! First tweet will be posted %v from now.\n", timer)
 	for {
@@ -126,6 +127,7 @@ func runCron(sheetsService *sheets.Service, twitter *anaconda.TwitterApi) {
 		}
 	}
 
+	// Post tweet
 	t, err := twitter.PostTweet(text, v)
 	if err != nil {
 		var twitError twitterError
@@ -134,7 +136,7 @@ func runCron(sheetsService *sheets.Service, twitter *anaconda.TwitterApi) {
 		if err != nil {
 			log.Fatalf("Unable to parse error JSON: %v\n Original error: %v", err, ogErr)
 		}
-		if twitError.Errors[0].Code == 187 { // Duplicate
+		if twitError.Errors[0].Code == 187 { // Duplicate error code
 			log.Println("Tweet was duplicate, finding next tweet...")
 			updateSheet(sheetsService, rowNum)
 			go runCron(sheetsService, twitter)
@@ -147,6 +149,7 @@ func runCron(sheetsService *sheets.Service, twitter *anaconda.TwitterApi) {
 	}
 }
 
+// Y the row that has been posted
 func updateSheet(sheetsService *sheets.Service, rowNum int) {
 	cell := "Approved!D" + strconv.Itoa(rowNum)
 	_, err := sheetsService.Spreadsheets.Values.Update(conf.Sheet.ID, cell, &sheets.ValueRange{Values: [][]interface{}{{"Y"}}}).ValueInputOption("RAW").Do()
