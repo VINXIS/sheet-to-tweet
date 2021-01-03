@@ -91,7 +91,8 @@ func runCron(sheetsService *sheets.Service, twitter *anaconda.TwitterApi) {
 	// Obtain sheet values
 	res, err := sheetsService.Spreadsheets.Values.Get(conf.Sheet.ID, conf.Sheet.Range).Do()
 	if err != nil {
-		log.Fatalf("Unable to retrieve data from sheet: %v", err)
+		log.Printf("Unable to retrieve data from sheet: %v", err)
+		return
 	}
 	colCount := len(res.Values[0])
 	rowNum := -1
